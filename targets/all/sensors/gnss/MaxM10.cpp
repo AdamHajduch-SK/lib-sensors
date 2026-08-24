@@ -57,6 +57,42 @@ async_def()
 }
 async_end
 
+async(MaxM10::EnableAssistNow)
+async_def(
+    uint8_t msg[17];
+)
+{
+    // UBX-CFG-VALSET enabling CFG-ANA-USE_ANA (0x10230001 = 1) in the RAM layer.
+    // Applied on every boot; the predicted-orbit (AOP) data itself is kept in the
+    // battery-backed BBR (V_BCKP), extending hot-start capability across power cycles.
+    // If the key/frame is rejected the receiver replies UBX-ACK-NAK and nothing else
+    // changes (no cold start), so this is safe even if unsupported.
+    static const uint8_t body[] = {
+        0x06, 0x8A,             // class, id: CFG-VALSET
+        0x09, 0x00,             // payload length = 9 (little-endian)
+        0x00,                   // version
+        0x01,                   // layers = RAM
+        0x00, 0x00,             // reserved
+        0x01, 0x00, 0x23, 0x10, // key CFG-ANA-USE_ANA (0x10230001, little-endian)
+        0x01,                   // value = 1 (enable)
+    };
+
+    f.msg[0] = 0xB5;
+    f.msg[1] = 0x62;
+    uint8_t ckA = 0, ckB = 0;
+    for (unsigned i = 0; i < sizeof(body); i++)
+    {
+        f.msg[2 + i] = body[i];
+        ckA += body[i];
+        ckB += ckA;
+    }
+    f.msg[2 + sizeof(body)] = ckA;
+    f.msg[3 + sizeof(body)] = ckB;
+
+    await(SendRaw, Span(f.msg, sizeof(f.msg)));
+}
+async_end
+
 void MaxM10::OnIdle()
 {
     NmeaGnssDevice::OnIdle();

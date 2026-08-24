@@ -31,6 +31,8 @@ public:
 
 protected:
     async(SendMessage, const char* msg) { return async_forward(SendMessageF, "%s", msg); }
+    //! Sends a raw byte buffer verbatim (e.g. a binary UBX frame), bypassing NMEA framing/checksum
+    async(SendRaw, Span data, Timeout timeout = Timeout::Infinite) { return async_forward(tx.Write, data, timeout); }
     async(SendMessageF, const char* format, ...) async_def_va(SendMessageFV, format, Timeout::Infinite, format);
     async(SendMessageFTimeout, Timeout timeout, const char* format, ...) async_def_va(SendMessageFV, format, timeout, format);
     async(SendMessageFV, Timeout timeout, const char* format, va_list va);

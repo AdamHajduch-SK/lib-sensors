@@ -25,6 +25,10 @@ public:
 
     async(SetBaudRate, unsigned baudRate) { return async_forward(SendMessageF, "PUBX,41,1,3,3,%u,0", baudRate); }
 
+    //! Enables AssistNow Autonomous (CFG-ANA-USE_ANA) so the receiver predicts
+    //! satellite orbits and can hot-start for up to ~3 days from BBR (V_BCKP).
+    async(EnableAssistNow);
+
     const UbxData& ExtendedData() const { return stableData; }
 
 protected:
