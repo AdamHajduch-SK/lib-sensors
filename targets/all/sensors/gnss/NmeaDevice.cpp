@@ -39,6 +39,14 @@ async_def(size_t len)
         // skip the last message
         rx.Advance(f.len);
 
+        // Both delimiter waits below MUST be bounded: if the stream carries garbage
+        // without the expected delimiter (e.g. baud-rate mismatch after a warm MCU
+        // reset, when the GNSS module is still at the high baud rate), an unbounded
+        // wait deadlocks with a full RX pipe - the parser waits for a delimiter that
+        // never comes while the pipe cannot accept more data, and the low-level
+        // receiver busy-spins, freezing the entire system. On timeout, discard
+        // everything buffered and resync.
+
         // skip to next '$', detect idle
         auto res = await_catch(rx.RequireUntil, '$', Timeout::Milliseconds(10));
         if (res.Success())
@@ -48,11 +56,44 @@ async_def(size_t len)
         else
         {
             OnIdle();
-            f.len = await(rx.RequireUntil, '$');
+            res = await_catch(rx.RequireUntil, '$', Timeout::Seconds(1));
+            if (!res.Success())
+            {
+                MYDBG("no '$' in stream, discarding %u bytes", rx.Available());
+                f.len = 0;
+                rx.Advance(rx.Available());
+                continue;
+            }
+            f.len = res.Value();
         }
+#if TRACE
+        // Anything before the '$' is not NMEA and gets skipped silently, which is where the
+        // receiver's binary answers to our configuration went - we sent UBX frames for years
+        // without ever seeing whether they were accepted. Report an ACK/NAK so a rejected
+        // setting stops looking like a firmware bug.
+        if (f.len >= 10)
+        {
+            uint8_t head[4] = {};
+            for (unsigned i = 0; i < 4; i++) { head[i] = (uint8_t)rx.Peek((size_t)i); }
+            if (head[0] == 0xB5 && head[1] == 0x62 && head[2] == 0x05)
+            {
+                MYDBG("UBX %s from receiver", head[3] ? "ACK" : "NAK");
+            }
+        }
+#endif
+
         rx.Advance(f.len);
-        // wait until the entire message is buffered
-        f.len = await(rx.RequireUntil, '\n');
+        // wait until the entire message is buffered (NMEA sentences are < 100 bytes,
+        // so 500 ms is generous even at the lowest baud rate)
+        res = await_catch(rx.RequireUntil, '\n', Timeout::Milliseconds(500));
+        if (!res.Success())
+        {
+            MYDBG("no '\\n' after '$', discarding %u bytes", rx.Available());
+            f.len = 0;
+            rx.Advance(rx.Available());
+            continue;
+        }
+        f.len = res.Value();
 
         uint8_t csum = 0;
         auto iter = rx.Enumerate(f.len);
