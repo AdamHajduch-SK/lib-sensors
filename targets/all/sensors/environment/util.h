@@ -19,4 +19,10 @@ constexpr float PressureToAltitude(float pressure, float qnh)
     return 44330.0 * (1 - powf((pressure / qnh), 0.190295));
 }
 
+//! Calculate QNH (pressure at sea level) from pressure and known altitude - inverse of PressureToAltitude
+constexpr float QnhFromAltitude(float pressure, float altitude)
+{
+    return pressure / powf(1 - altitude / 44330.0f, 1 / 0.190295f);
+}
+
 }
