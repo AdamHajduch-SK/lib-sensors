@@ -50,8 +50,21 @@ void MaxM10::OnMessage(io::Pipe::Iterator& message)
 }
 
 async(MaxM10::PollRequest)
-async_def()
+async_def(
+    unsigned ms;
+)
 {
+    // Everything this driver sends goes out from here, one task. The transmit pipe tolerates a
+    // single writer: SendMessageFV writes a sentence in three steps ('$', body, checksum), so a
+    // raw UBX frame written from another task lands in the middle of it and destroys both. That
+    // is why configuration frames went unanswered - the receiver never saw a valid message.
+    if (pendingRateMs)
+    {
+        f.ms = pendingRateMs;
+        pendingRateMs = 0;
+        await(SetMeasurementRate, f.ms);
+    }
+
     await(SendMessage, "PUBX,00");
     activePoll = false;
 }
@@ -75,6 +88,40 @@ async_def(
         0x00, 0x00,             // reserved
         0x01, 0x00, 0x23, 0x10, // key CFG-ANA-USE_ANA (0x10230001, little-endian)
         0x01,                   // value = 1 (enable)
+    };
+
+    f.msg[0] = 0xB5;
+    f.msg[1] = 0x62;
+    uint8_t ckA = 0, ckB = 0;
+    for (unsigned i = 0; i < sizeof(body); i++)
+    {
+        f.msg[2 + i] = body[i];
+        ckA += body[i];
+        ckB += ckA;
+    }
+    f.msg[2 + sizeof(body)] = ckA;
+    f.msg[3 + sizeof(body)] = ckB;
+
+    await(SendRaw, Span(f.msg, sizeof(f.msg)));
+}
+async_end
+
+async(MaxM10::SetMeasurementRate, unsigned periodMs)
+async_def(
+    uint8_t msg[18];
+)
+{
+    // UBX-CFG-VALSET writing CFG-RATE-MEAS (0x30210001, U2, milliseconds) to the RAM layer.
+    // 1000 = 1 Hz (default), 100 = 10 Hz for speed flying. Rejected keys are answered with
+    // UBX-ACK-NAK and change nothing, so an unsupported receiver simply keeps its rate.
+    uint8_t body[] = {
+        0x06, 0x8A,             // class, id: CFG-VALSET
+        0x0A, 0x00,             // payload length = 10 (little-endian)
+        0x00,                   // version
+        0x01,                   // layers = RAM
+        0x00, 0x00,             // reserved
+        0x01, 0x00, 0x21, 0x30, // key CFG-RATE-MEAS (0x30210001, little-endian)
+        uint8_t(periodMs), uint8_t(periodMs >> 8),  // value (U2, little-endian)
     };
 
     f.msg[0] = 0xB5;
