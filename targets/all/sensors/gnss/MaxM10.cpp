@@ -8,6 +8,8 @@
 
 #include "MaxM10.h"
 
+#define MYDBG(...)  DBGCL("MAX10", __VA_ARGS__)
+
 namespace sensors::gnss
 {
 
@@ -21,6 +23,13 @@ void MaxM10::OnMessage(io::Pipe::Iterator& message)
         {
             activePoll = true;
             kernel::Task::Run(this, &MaxM10::PollRequest);
+        }
+        else
+        {
+            // a poll is already running - this request is silently dropped, relying on OnIdle
+            // to set requestPoll again once it finishes. If PollRequest itself is stuck, this
+            // fires forever with no new poll ever starting - that is exactly what we're hunting.
+            MYDBG("requestPoll starved: a poll is already active (pendingRateMs=%u)", pendingRateMs);
         }
     }
 
@@ -58,14 +67,19 @@ async_def(
     // single writer: SendMessageFV writes a sentence in three steps ('$', body, checksum), so a
     // raw UBX frame written from another task lands in the middle of it and destroys both. That
     // is why configuration frames went unanswered - the receiver never saw a valid message.
+    MYDBG("PollRequest start (pendingRateMs=%u)", pendingRateMs);
     if (pendingRateMs)
     {
         f.ms = pendingRateMs;
         pendingRateMs = 0;
+        MYDBG("PollRequest: awaiting SetMeasurementRate(%u)", f.ms);
         await(SetMeasurementRate, f.ms);
+        MYDBG("PollRequest: SetMeasurementRate done");
     }
 
+    MYDBG("PollRequest: awaiting SendMessage(PUBX,00)");
     await(SendMessage, "PUBX,00");
+    MYDBG("PollRequest: SendMessage done");
     activePoll = false;
 }
 async_end
