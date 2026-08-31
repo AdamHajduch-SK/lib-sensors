@@ -25,6 +25,9 @@ public:
         : NmeaDevice(pipe) {}
 
     const LocationData& LastLocation() const { return stableData; }
+    //! Hardware identifier captured from the module's startup $GxTXT messages
+    //! (e.g. "UBX-M10050-KB"), empty until the module reports it.
+    Span ModuleName() const { return Span::FromSZ(moduleName); }
 
 protected:
     virtual void OnMessage(io::Pipe::Iterator& message);
@@ -44,6 +47,7 @@ private:
         .altitude = NAN, .separation = NAN,
     };
     LocationData stableData = data;
+    char moduleName[24] = "";
     SatelliteData sdata[MaxGsvGroups];
     SatelliteData sdataPending = {};
     uint8_t sdataPendLast, sdataPendTotal;

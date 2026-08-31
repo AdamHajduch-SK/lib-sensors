@@ -43,14 +43,31 @@ void NmeaGnssDevice::OnMessage(io::Pipe::Iterator& message)
             {
                 case ID("TXT"): // text message
                 {
+                    ReadNum(message);  // numMsg
+                    ReadNum(message);  // msgNum
+                    ReadNum(message);  // msgType
+                    // the remaining field is free text; the startup "HW <id>" line carries the
+                    // module hardware identifier (e.g. "HW UBX-M10050-KB")
+                    char txt[40];
+                    size_t n = 0;
+                    for (auto s : message.Spans())
+                    {
+                        auto p = (const char*)s.Pointer();
+                        for (size_t i = 0; i < s.Length() && n < sizeof(txt) - 1; i++)
+                        {
+                            txt[n++] = p[i];
+                        }
+                    }
+                    txt[n] = 0;
+                    if (n > 3 && txt[0] == 'H' && txt[1] == 'W' && txt[2] == ' ')
+                    {
+                        const char* src = txt + 3;
+                        size_t m = 0;
+                        while (src[m] && m < sizeof(moduleName) - 1) { moduleName[m] = src[m]; m++; }
+                        moduleName[m] = 0;
+                    }
 #if TRACE
-                    int n = ReadNum(message);
-                    int cnt = ReadNum(message);
-                    int level = ReadNum(message);
-
-                    DBGC("GNSS", "Message %d/%d [%d]: ", n, cnt, level);
-                    for (auto s : message.Spans()) { _DBG("%b", s); }
-                    _DBGCHAR('\n');
+                    DBGC("GNSS", "TXT: %s\n", txt);
 #endif
                     return;
                 }
