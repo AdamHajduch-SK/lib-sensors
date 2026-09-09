@@ -30,10 +30,16 @@ public:
     async(TxIdle, Timeout timeout = Timeout::Infinite) { return async_forward(tx.Empty, timeout); }
 
 protected:
+    // A stuck TX pipe (e.g. a missed DMA completion) must never be able to wedge the sender
+    // forever - caught live via SWO: MaxM10::PollRequest hung inside an infinite-timeout send,
+    // never clearing activePoll, permanently starving every future rate-change request. A short
+    // NMEA/UBX frame at 9600+ baud always finishes in a few ms, so this bound is never legitimately hit.
+    static constexpr Timeout SendDefaultTimeout = Timeout::Milliseconds(500);
+
     async(SendMessage, const char* msg) { return async_forward(SendMessageF, "%s", msg); }
     //! Sends a raw byte buffer verbatim (e.g. a binary UBX frame), bypassing NMEA framing/checksum
-    async(SendRaw, Span data, Timeout timeout = Timeout::Infinite) { return async_forward(tx.Write, data, timeout); }
-    async(SendMessageF, const char* format, ...) async_def_va(SendMessageFV, format, Timeout::Infinite, format);
+    async(SendRaw, Span data, Timeout timeout = SendDefaultTimeout) { return async_forward(tx.Write, data, timeout); }
+    async(SendMessageF, const char* format, ...) async_def_va(SendMessageFV, format, SendDefaultTimeout, format);
     async(SendMessageFTimeout, Timeout timeout, const char* format, ...) async_def_va(SendMessageFV, format, timeout, format);
     async(SendMessageFV, Timeout timeout, const char* format, va_list va);
     virtual void OnIdle() {}
