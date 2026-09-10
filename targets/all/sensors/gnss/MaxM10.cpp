@@ -122,20 +122,25 @@ async_end
 
 async(MaxM10::SetMeasurementRate, unsigned periodMs)
 async_def(
-    uint8_t msg[18];
+    uint8_t msg[24];
 )
 {
-    // UBX-CFG-VALSET writing CFG-RATE-MEAS (0x30210001, U2, milliseconds) to the RAM layer.
-    // 1000 = 1 Hz (default), 100 = 10 Hz for speed flying. Rejected keys are answered with
-    // UBX-ACK-NAK and change nothing, so an unsupported receiver simply keeps its rate.
+    // UBX-CFG-VALSET to the RAM layer, two keys in one frame:
+    //  - CFG-RATE-MEAS (0x30210001, U2, ms): 1000 = 1 Hz, 100 = 10 Hz for speed flying
+    //  - CFG-RATE-NAV  (0x30210002, U2): measurements per navigation solution, forced to 1 so
+    //    the nav (output) rate always equals the measurement rate - a stale value > 1 left in
+    //    RAM would otherwise divide the output rate down even after MEAS is set correctly.
+    // Rejected keys are answered with UBX-ACK-NAK and change nothing.
     uint8_t body[] = {
         0x06, 0x8A,             // class, id: CFG-VALSET
-        0x0A, 0x00,             // payload length = 10 (little-endian)
+        0x10, 0x00,             // payload length = 16 (little-endian)
         0x00,                   // version
         0x01,                   // layers = RAM
         0x00, 0x00,             // reserved
         0x01, 0x00, 0x21, 0x30, // key CFG-RATE-MEAS (0x30210001, little-endian)
         uint8_t(periodMs), uint8_t(periodMs >> 8),  // value (U2, little-endian)
+        0x02, 0x00, 0x21, 0x30, // key CFG-RATE-NAV (0x30210002, little-endian)
+        0x01, 0x00,             // value = 1 (U2, little-endian)
     };
 
     f.msg[0] = 0xB5;
