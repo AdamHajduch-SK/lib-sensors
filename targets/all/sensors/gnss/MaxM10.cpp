@@ -67,19 +67,31 @@ async_def(
     // single writer: SendMessageFV writes a sentence in three steps ('$', body, checksum), so a
     // raw UBX frame written from another task lands in the middle of it and destroys both. That
     // is why configuration frames went unanswered - the receiver never saw a valid message.
+    // Both sends below are timeout-bounded (see SendDefaultTimeout in NmeaDevice.h) precisely
+    // so a stuck TX pipe cannot wedge this task forever - but a timed-out send *throws*
+    // (io::TimeoutError, via async_throw in Pipe::WriterWrite), it does not just return an
+    // error. An unguarded await() here let that exception escape uncaught straight out of the
+    // task, skipping activePoll = false below exactly like the original infinite hang did -
+    // caught live: "Unhandled exception: io::TimeoutError 0" fired 500ms after "awaiting
+    // SendMessage", and every later request was starved from then on. await_catch() below is
+    // what actually closes that loop; a timeout here just means try again next time.
     MYDBG("PollRequest start (pendingRateMs=%u)", pendingRateMs);
     if (pendingRateMs)
     {
         f.ms = pendingRateMs;
         pendingRateMs = 0;
         MYDBG("PollRequest: awaiting SetMeasurementRate(%u)", f.ms);
-        await(SetMeasurementRate, f.ms);
-        MYDBG("PollRequest: SetMeasurementRate done");
+        if (!await_catch(SetMeasurementRate, f.ms).Success())
+        {
+            MYDBG("PollRequest: SetMeasurementRate timed out");
+        }
     }
 
     MYDBG("PollRequest: awaiting SendMessage(PUBX,00)");
-    await(SendMessage, "PUBX,00");
-    MYDBG("PollRequest: SendMessage done");
+    if (!await_catch(SendMessage, "PUBX,00").Success())
+    {
+        MYDBG("PollRequest: SendMessage timed out");
+    }
     activePoll = false;
 }
 async_end
