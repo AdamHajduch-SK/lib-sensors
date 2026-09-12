@@ -61,8 +61,10 @@ void MaxM10::OnMessage(io::Pipe::Iterator& message)
 async(MaxM10::PollRequest)
 async_def(
     unsigned ms;
+    bool ok;
 )
 {
+    f.ok = true;
     // Everything this driver sends goes out from here, one task. The transmit pipe tolerates a
     // single writer: SendMessageFV writes a sentence in three steps ('$', body, checksum), so a
     // raw UBX frame written from another task lands in the middle of it and destroys both. That
@@ -84,6 +86,7 @@ async_def(
         if (!await_catch(SetMeasurementRate, f.ms).Success())
         {
             MYDBG("PollRequest: SetMeasurementRate timed out");
+            f.ok = false;
         }
     }
 
@@ -91,7 +94,15 @@ async_def(
     if (!await_catch(SendMessage, "PUBX,00").Success())
     {
         MYDBG("PollRequest: SendMessage timed out");
+        f.ok = false;
     }
+
+    // track consecutive fully-failed cycles so Gnss::Run can notice a wedged TX path and reset
+    // it - a single successful send (even just the PUBX,00 poll, without a pending rate change)
+    // is enough to prove the path is alive again
+    if (f.ok) { txFailures = 0; }
+    else { txFailures++; }
+
     activePoll = false;
 }
 async_end

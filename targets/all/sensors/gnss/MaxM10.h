@@ -40,6 +40,14 @@ public:
 
     const UbxData& ExtendedData() const { return stableData; }
 
+    //! Consecutive PollRequest cycles (roughly one per second) where every send in that cycle
+    //! timed out - i.e. how many seconds the transmit path has been completely dead. Zero as
+    //! long as at least one send is getting through. The receiver keeps producing RX traffic on
+    //! its own even while TX is stuck (whatever it was last configured to output), which is why
+    //! this can't be seen from a stalled OnIdle/PollRequest cadence alone - see Gnss::Run, which
+    //! watches this to detect and recover from a wedged TX path.
+    unsigned TxFailures() const { return txFailures; }
+
 protected:
     virtual void OnMessage(io::Pipe::Iterator& message);
     virtual void OnIdle();
@@ -51,6 +59,7 @@ private:
     bool activePoll = false;
     //! Measurement period waiting to be sent, in ms; zero when there is nothing pending
     unsigned pendingRateMs = 0;
+    unsigned txFailures = 0;
     UbxData data = { NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 0, FixType::Unknown, -1 }, stableData = data;
 
     FixType ReadFixType(io::Pipe::Iterator& message);
