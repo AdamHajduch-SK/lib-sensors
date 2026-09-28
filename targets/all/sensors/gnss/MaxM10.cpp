@@ -16,7 +16,10 @@ namespace sensors::gnss
 
 void MaxM10::OnMessage(io::Pipe::Iterator& message)
 {
-    if (requestPoll)
+    // suspended: someone else (see SuspendPolling) is about to send directly on this task's pipe
+    // and needs to be its only writer for a bit - leave requestPoll set so a cycle starts again
+    // as soon as we're un-suspended, same as the "already active" starvation path below.
+    if (requestPoll && !suspended)
     {
         requestPoll = false;
         if (!activePoll)
@@ -37,6 +40,11 @@ void MaxM10::OnMessage(io::Pipe::Iterator& message)
     {
         return NmeaGnssDevice::OnMessage(message);
     }
+
+    // count every position sentence actually seen, independent of whether its content changed
+    // (see SampleCount() in the header) - the base class only fires Event_LocationData on a real
+    // change, which never happens without a fix (every field stays at its "no fix" placeholder)
+    sampleCount++;
 
     message.Skip(8);
     ReadDecimal(message);  // time

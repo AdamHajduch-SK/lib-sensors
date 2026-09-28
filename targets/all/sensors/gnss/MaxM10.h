@@ -48,6 +48,28 @@ public:
     //! watches this to detect and recover from a wedged TX path.
     unsigned TxFailures() const { return txFailures; }
 
+    //! Count of PUBX,00 position sentences actually received, incremented on every one seen
+    //! regardless of whether the fix/position it carries has changed - unlike the
+    //! Event_LocationData the base class fires (only on a real content change), this keeps
+    //! advancing even with no fix at all (fixType stuck at None), which is exactly when a rate
+    //! confirmation needs it most (see Gnss::ResetAndConfirmRate - it cannot assume a live fix,
+    //! e.g. during an indoor/bench test).
+    unsigned SampleCount() const { return sampleCount; }
+
+    // Root cause of a bug caught live: EnableAssistNow()/SetBaudRate() send directly on whatever
+    // task calls them, same as the transmit pipe's single-writer rule RequestMeasurementRate's own
+    // comment already documents - but nothing actually enforced it against PollRequest, which is
+    // spawned independently (roughly once a second, off received-message/idle events) and sends
+    // through the very same pipe. At cold boot PollRequest has nothing to send yet, so the two
+    // never actually collided - but Gnss::ResetAndConfirmRate now calls these again mid-session,
+    // repeatedly, while PollRequest is genuinely active, and the collision corrupts the pipe's
+    // read/write position bookkeeping (ASSERT FAILED: io/PipePosition.h(36), caught live via a RAM
+    // log dump). SuspendPolling(true) stops new PollRequest cycles from starting; the caller still
+    // has to wait out any cycle already in flight (see IsPollActive) before sending directly.
+    void SuspendPolling(bool suspend) { suspended = suspend; }
+    //! Whether a PollRequest cycle is currently mid-send - see SuspendPolling.
+    bool IsPollActive() const { return activePoll; }
+
 protected:
     virtual void OnMessage(io::Pipe::Iterator& message);
     virtual void OnIdle();
@@ -57,9 +79,11 @@ protected:
 private:
     bool requestPoll = true;
     bool activePoll = false;
+    bool suspended = false;
     //! Measurement period waiting to be sent, in ms; zero when there is nothing pending
     unsigned pendingRateMs = 0;
     unsigned txFailures = 0;
+    unsigned sampleCount = 0;
     UbxData data = { NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 0, FixType::Unknown, -1 }, stableData = data;
 
     FixType ReadFixType(io::Pipe::Iterator& message);
